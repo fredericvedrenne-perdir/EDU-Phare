@@ -195,15 +195,30 @@
             
             <!-- VUE : TABLEAU DE BORD -->
 <section id="view-dashboard" class="view active">
-                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--accent); padding-bottom: 10px; margin-bottom: 20px;">
-                    <h2 style="border: none; padding: 0; margin: 0;">Tableau de bord des procédures</h2>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <label for="filtre-annee" style="font-weight: bold; color: var(--secondary);">Année scolaire :</label>
-                        <select id="filtre-annee" onchange="changerAnneeScolaire()" aria-label="Filtrer les procédures par année scolaire" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-weight: bold;">
-                            <!-- Option injectée par JS -->
-                        </select>
-                    </div>
-                </div>
+<div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--accent); padding-bottom: 10px; margin-bottom: 20px;">
+    <h2 style="border: none; padding: 0; margin: 0;">Tableau de bord des procédures</h2>
+    <div style="display: flex; align-items: center; gap: 10px;">
+        <label for="filtre-annee" style="font-weight: bold; color: var(--secondary);">Année scolaire :</label>
+        <select id="filtre-annee" onchange="changerAnneeScolaire()" aria-label="Filtrer les procédures par année scolaire" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-weight: bold;">
+            <!-- Option injectée par JS -->
+        </select>
+        
+        <!-- NOUVEAU BOUTON D'EXPORT -->
+        <button type="button" id="btn-export-classes" class="btn-danger" onclick="exporterListePourConstitutionClasses()" aria-label="Générer un PDF d'aide à la constitution des classes" style="margin-left: 15px;">
+            <i class="fa-solid fa-file-pdf" aria-hidden="true"></i> Synthèse rentrée
+        </button>
+    </div>
+</div>
+				<!-- Encart d'information pour la création de procédure (Conforme RGAA) -->
+<div class="instructions-box" style="display: flex; justify-content: space-between; align-items: center; background: #e8f4fd; border-color: var(--accent); margin-bottom: 20px;">
+    <div>
+        <i class="fa-solid fa-circle-info" style="color: var(--accent);" aria-hidden="true"></i> 
+        <strong>Nouveau signalement :</strong> L'ouverture d'un protocole pHARe s'effectue directement depuis le registre des élèves.
+    </div>
+    <button type="button" class="btn-primary" onclick="document.querySelector('[data-target=\'view-eleves\']').click()" aria-label="Accéder au registre des élèves pour ouvrir une nouvelle procédure">
+        <i class="fa-solid fa-users" aria-hidden="true"></i> Voir les élèves
+    </button>
+</div>
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -985,9 +1000,11 @@ menuItems.forEach(item => {
         const targetId = item.getAttribute('data-target');
         
         // --- LOGIQUE D'INITIALISATION DYNAMIQUE ---
-        // On vérifie si la vue cible est celle des statistiques
         if (targetId === 'view-stats') {
             mettreAJourStats(); 
+        } else if (targetId === 'view-dashboard') {
+            // Force la mise à jour des données du tableau de bord à chaque affichage
+            renderDashboard();
         }
 
         views.forEach(view => {
@@ -1699,24 +1716,43 @@ const sortedJournal = [...proc.journal].sort((a,b) => new Date(b.date) - new Dat
         }
 
 function enregistrerImplique(event) {
-            event.preventDefault();
-            const idNational = document.getElementById('sel-implique-eleve').value;
-            const role = document.getElementById('sel-implique-role').value;
-            if(!idNational) return;
+    event.preventDefault();
+    const idNational = document.getElementById('sel-implique-eleve').value;
+    const role = document.getElementById('sel-implique-role').value;
+    if(!idNational) return;
 
-            const proc = appData.procedures.find(p => p.id === currentProcedureId);
-            const el = getEleveComplet(idNational); // Récupération pour capturer la donnée
+    const proc = appData.procedures.find(p => p.id === currentProcedureId);
+    const el = getEleveComplet(idNational);
 
-            // [NOUVEAU] On enregistre la classe de l'impliqué au moment T
-            proc.impliques.push({ 
-                idNational, 
-                role,
-                classe: el ? el.classe : 'Inconnue' 
-            });
+    // Enregistre la classe de l'impliqué au moment T
+    proc.impliques.push({ 
+        idNational, 
+        role,
+        classe: el ? el.classe : 'Inconnue' 
+    });
+    
+    document.getElementById('modal-add-implique').classList.add('hidden');
+    
+    // Synchronisation multi-vues pour assurer la cohérence des données
+    renderProcedureDetails();
+    renderDashboard(); 
+}
+
+function retirerImplique(idNational) {
+    afficherModale("Retirer un élève", "Êtes-vous sûr de vouloir retirer cet élève de la procédure ?", () => {
+        const proc = appData.procedures.find(p => p.id === currentProcedureId);
+        if(proc) {
+            // Filtre le tableau pour exclure l'élève ciblé
+            proc.impliques = proc.impliques.filter(imp => imp.idNational !== idNational);
             
-            document.getElementById('modal-add-implique').classList.add('hidden');
+            // Double synchronisation
             renderProcedureDetails();
+            renderDashboard();
         }
+    });
+}
+
+
 
         // --- GESTION DU JOURNAL (AJOUT / MODIFICATION / SUPPRESSION) ---
         function genererCheckboxesJournal(proc) {
@@ -2414,7 +2450,7 @@ async function executerExportPDF() {
         // Instanciation du document PDF final qui recevra les fragments
         const finalPdf = await PDFDocument.create();
 
-        // ====================================================================
+// ====================================================================
         // 1. FONCTION UTILITAIRE : COMPILATION HTML -> PDF
         // Rôle : Convertit un bloc HTML en PDF et l'ajoute au document maître
         // ====================================================================
@@ -2423,11 +2459,16 @@ async function executerExportPDF() {
                 <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; font-size: 11pt; line-height: 1.5; width: 100%; box-sizing: border-box; background: white;">
                     <style>
                         *, *::before, *::after { box-sizing: border-box; }
-                        table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 30px; }
+                        /* Configuration stricte de la table pour autoriser la pagination */
+                        table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 30px; page-break-inside: auto; }
                         th, td { border: 1px solid #bdc3c7; padding: 12px; word-wrap: break-word; text-align: left; vertical-align: top; }
                         th { background-color: #34495e; color: white; }
                         tr:nth-child(even) { background-color: #f9f9f9; }
                         .export-section { margin-bottom: 25px; }
+                        
+                        /* CORRECTIF DE PAGINATION : Blindage CSS */
+                        tr { page-break-inside: avoid !important; break-inside: avoid !important; page-break-after: auto; }
+                        thead { display: table-header-group; }
                     </style>
                     ${htmlContent}
                 </div>
@@ -2438,7 +2479,9 @@ async function executerExportPDF() {
                 filename:     'fragment.pdf',
                 image:        { type: 'jpeg', quality: 1 },
                 html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
-                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                // CORRECTIF DE PAGINATION : Déclaration explicite des nœuds à ne pas couper
+                pagebreak:    { mode: ['css', 'legacy'], avoid: ['tr', 'h2', 'h3'] }
             };
 
             const base64 = await html2pdf().set(opt).from(virtualTemplate).output('datauristring');
@@ -2446,7 +2489,6 @@ async function executerExportPDF() {
             const pages = await finalPdf.copyPages(fragmentPdf, fragmentPdf.getPageIndices());
             pages.forEach(page => finalPdf.addPage(page));
         }
-
 // ====================================================================
 // 2. CONSTRUCTION DES 3 PAGES DU DOSSIER
 // ====================================================================
@@ -2507,10 +2549,25 @@ let htmlProtagonistes = `
     </div>
 `;
 
+// ====================================================================
 // PAGE 3 : CHRONOLOGIE
+// ====================================================================
 const sortedJournal = proc.journal ? [...proc.journal].sort((a,b) => new Date(a.date) - new Date(b.date)) : [];
 let htmlTimeline = `<h2 style="border-bottom: 2px solid #2c3e50; padding-bottom: 10px;">Chronologie de la procédure</h2>`;
-htmlTimeline += `<table><thead><tr style="background:#34495e; color:white;"><th>Date</th><th>Action</th><th>Notes</th></tr></thead><tbody>`;
+
+// CORRECTIF : Injection des largeurs en pourcentages (15% / 20% / 65%)
+htmlTimeline += `
+    <table>
+        <thead>
+            <tr style="background:#34495e; color:white;">
+                <th style="width: 15%; padding: 8px;">Date</th>
+                <th style="width: 20%; padding: 8px;">Action</th>
+                <th style="width: 65%; padding: 8px;">Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+`;
+
 sortedJournal.forEach(ev => {
     htmlTimeline += `<tr>
         <td style="padding:8px; border:1px solid #ddd;"><strong>${ev.date.split('-').reverse().join('/')}</strong></td>
@@ -2520,20 +2577,13 @@ sortedJournal.forEach(ev => {
 });
 htmlTimeline += `</tbody></table>`;
 
-// COMPILATION
-await compilerFragmentPDF(`
-    <div id="p1">${htmlGarde}</div>
-    <div style="page-break-before: always;">${htmlProtagonistes}</div>
-    <div style="page-break-before: always;">${htmlTimeline}</div>
-`);
-
         // ====================================================================
         // 3. ITÉRATION SUR LES ÉVÉNEMENTS & PIÈCES JOINTES
         // ====================================================================
         for (let ev of sortedJournal) {
             const dateEv = ev.date.split('-').reverse().join('/');
             
-            const htmlEv = `
+const htmlEv = `
                 <h3 style="background: #2c3e50; color: white; padding: 12px; border-radius: 4px 4px 0 0; margin-bottom: 0;">Événement du ${dateEv}</h3>
                 <div style="border: 1px solid #bdc3c7; border-top: none; padding: 20px; border-radius: 0 0 4px 4px;">
                     <p style="margin-bottom: 10px;"><strong>Type d'action :</strong> ${ev.type}</p>
@@ -2543,7 +2593,7 @@ await compilerFragmentPDF(`
                     <h4 style="color: #34495e; border-bottom: 1px dashed #bdc3c7; padding-bottom: 5px; margin-bottom: 10px;">Notes de l'entretien / Synthèse</h4>
                     <div style="background: #f8f9fa; padding: 15px; border-radius: 4px; border-left: 4px solid #95a5a6; min-height: 80px; white-space: pre-wrap; line-height: 1.5;">${ev.notes || '<em>Aucun compte-rendu textuel n\'a été saisi.</em>'}</div>
                     
-                    ${ev.pj && chkPj ? `<p style="margin-top: 20px; padding: 10px; background: #e8f4fd; color: #2980b9; border-radius: 4px; border: 1px solid #bde0fe;"><strong>Information :</strong> Une pièce jointe ("${ev.pj.nom}") est rattachée à cet événement. Elle est insérée à la page suivante.</p>` : ''}
+                    ${ev.pj && chkPj ? `<p style="margin-top: 20px; padding: 10px; background: #e8f4fd; color: #2980b9; border-radius: 4px; border: 1px solid #bde0fe; overflow-wrap: break-word; word-break: break-all;"><strong>Information :</strong> Une pièce jointe ("${ev.pj.nom}") est rattachée à cet événement. Elle est insérée à la page suivante.</p>` : ''}
                 </div>
             `;
             await compilerFragmentPDF(htmlEv);
@@ -2989,6 +3039,164 @@ function mettreAJourStats() {
     document.getElementById('stat-victimes-body').innerHTML = genererLignesTableau(victimesDict);
     document.getElementById('stat-intimidateurs-body').innerHTML = genererLignesTableau(intimidateursDict);
 }
+
+/**
+ * Génère un tableau PDF récapitulatif des élèves impliqués (Victimes et Intimidateurs)
+ * avec cartographie relationnelle et statut du dossier pour la constitution des classes.
+ */
+async function exporterListePourConstitutionClasses() {
+    const btn = document.getElementById('btn-export-classes');
+    
+    // Feedback d'état d'occupation (Norme RGAA)
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Génération...';
+    btn.setAttribute('aria-busy', 'true');
+    btn.disabled = true;
+
+    try {
+        // 1. Détermination de l'année cible
+        const selectAnnee = document.getElementById('filtre-annee');
+        const anneeFiltre = selectAnnee ? selectAnnee.value : appData.config.anneeEnCours;
+        
+        const procsFiltrees = appData.procedures.filter(p => {
+            const anneeProc = p.anneeScolaire || getAnneeScolaire(p.dateCreation);
+            return anneeFiltre === "TOUTES" || anneeProc === anneeFiltre;
+        });
+
+        if (procsFiltrees.length === 0) {
+            alert("Aucune procédure enregistrée pour cette sélection temporelle.");
+            return;
+        }
+
+        // 2. Extraction et dédoublonnage des élèves (Map pour aggregation)
+        const elevesMap = new Map();
+
+        const initialiserEleve = (idNational, classeSnapshot) => {
+            if (!elevesMap.has(idNational)) {
+                const elBase = getEleveComplet(idNational);
+                elevesMap.set(idNational, {
+                    nom: elBase ? elBase.nom : 'Inconnu',
+                    prenom: elBase ? elBase.prenom : 'Inconnu',
+                    classe: classeSnapshot || (elBase ? elBase.classe : '-'),
+                    implications: new Set()
+                });
+            }
+        };
+
+        // 3. Traitement de la cartographie relationnelle
+        procsFiltrees.forEach(proc => {
+            // Définition du statut de la procédure
+            const statutQualif = (proc.qualification && proc.qualification !== 'Non qualifié') 
+                ? proc.qualification 
+                : (proc.estOuverte ? 'En cours d\'instruction' : 'Non qualifié');
+
+            // Récupération de la victime
+            const vic = getEleveComplet(proc.victimeId);
+            const vicName = vic ? `${vic.nom} ${vic.prenom}` : 'Inconnu';
+
+            // Récupération stricte des intimidateurs (exclusion des témoins)
+            const intimidateurs = proc.impliques.filter(imp => imp.role === 'Présumé Intimidateur');
+            const listeNomsIntimidateurs = intimidateurs.map(i => {
+                const el = getEleveComplet(i.idNational);
+                return el ? `${el.nom} ${el.prenom}` : 'Inconnu';
+            });
+            const strTousIntimidateurs = listeNomsIntimidateurs.length > 0 ? listeNomsIntimidateurs.join(', ') : 'Aucun identifié';
+
+            // A. Ajout des données pour la VICTIME
+            if (proc.victimeId) {
+                initialiserEleve(proc.victimeId, proc.victimeClasse);
+                const detailVictime = `
+                    <div style="margin-bottom: 8px;">
+                        <strong>Victime cible</strong> (Dossier N°${proc.id} - <em>${statutQualif}</em>)<br>
+                        <span style="font-size: 0.9em; color: #c0392b;">Intimidateur(s) lié(s) : ${strTousIntimidateurs}</span>
+                    </div>`;
+                elevesMap.get(proc.victimeId).implications.add(detailVictime);
+            }
+
+            // B. Ajout des données pour chaque INTIMIDATEUR
+            intimidateurs.forEach(imp => {
+                initialiserEleve(imp.idNational, imp.classe);
+                
+                // Isolement des co-intimidateurs (on exclut l'élève en cours de boucle)
+                const currentEl = getEleveComplet(imp.idNational);
+                const currentName = currentEl ? `${currentEl.nom} ${currentEl.prenom}` : 'Inconnu';
+                const coIntimidateurs = listeNomsIntimidateurs.filter(name => name !== currentName);
+                
+                let strCoIntimidateurs = '';
+                if (coIntimidateurs.length > 0) {
+                    strCoIntimidateurs = `<br>Co-intimidateur(s) : ${coIntimidateurs.join(', ')}`;
+                }
+
+                const detailIntim = `
+                    <div style="margin-bottom: 8px;">
+                        <strong>Présumé Intimidateur</strong> (Dossier N°${proc.id} - <em>${statutQualif}</em>)<br>
+                        <span style="font-size: 0.9em; color: #e67e22;">Cible : ${vicName}${strCoIntimidateurs}</span>
+                    </div>`;
+                elevesMap.get(imp.idNational).implications.add(detailIntim);
+            });
+        });
+
+        // 4. Tri alphabétique
+        const elevesArray = Array.from(elevesMap.values()).sort((a, b) => a.nom.localeCompare(b.nom));
+
+        // 5. Construction du gabarit HTML virtuel
+        const htmlContent = `
+            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #2c3e50; padding: 30px; box-sizing: border-box;">
+                <div style="text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 15px; margin-bottom: 30px;">
+                    <h1 style="margin: 0; font-size: 1.6em; text-transform: uppercase;">Aide à la constitution des classes</h1>
+                    <h2 style="margin: 5px 0 0 0; font-size: 1.2em; color: #34495e;">Année scolaire de référence : ${anneeFiltre}</h2>
+                </div>
+                
+                <div style="background-color: #fff3cd; border-left: 4px solid #f1c40f; padding: 15px; margin-bottom: 25px; font-size: 0.95em; line-height: 1.4;">
+                    <strong>Document Confidentiel</strong> - À l'usage exclusif de la Direction.<br>
+                    Ce registre répertorie les élèves ayant fait l'objet d'un suivi pHARe sur l'année sélectionnée (Témoins exclus). Il expose les liens d'incompatibilité afin de prévenir le regroupement d'élèves antagonistes lors des répartitions de la prochaine rentrée.
+                </div>
+
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.95em;">
+                    <thead>
+                        <tr style="background-color: #34495e; color: white;">
+                            <th style="padding: 12px; border: 1px solid #bdc3c7; text-align: left; width: 30%;">Nom Prénom</th>
+                            <th style="padding: 12px; border: 1px solid #bdc3c7; text-align: center; width: 15%;">Classe origine</th>
+                            <th style="padding: 12px; border: 1px solid #bdc3c7; text-align: left; width: 55%;">Cartographie relationnelle et statut</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${elevesArray.map(el => `
+                            <tr>
+                                <td style="padding: 10px; border: 1px solid #bdc3c7; vertical-align: top;"><strong>${el.nom}</strong> ${el.prenom}</td>
+                                <td style="padding: 10px; border: 1px solid #bdc3c7; text-align: center; vertical-align: top;">${el.classe}</td>
+                                <td style="padding: 10px; border: 1px solid #bdc3c7; vertical-align: top;">
+                                    ${Array.from(el.implications).join('<hr style="border: 0; border-top: 1px dashed #bdc3c7; margin: 8px 0;">')}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        // 6. Configuration et appel du moteur PDF
+        const nomFichier = `Constitution_Classes_pHARe_${anneeFiltre.replace('/', '-')}.pdf`;
+        const opt = {
+            margin:       10,
+            filename:     nomFichier,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        await html2pdf().set(opt).from(htmlContent).save();
+
+    } catch (error) {
+        console.error("Erreur lors de la génération PDF :", error);
+        alert("Une erreur technique est survenue lors de l'encodage du document.");
+    } finally {
+        // Restauration de l'état initial du bouton
+        btn.innerHTML = '<i class="fa-solid fa-file-pdf" aria-hidden="true"></i> Synthèse rentrée';
+        btn.removeAttribute('aria-busy');
+        btn.disabled = false;
+    }
+}
+
     </script>
 </body>
 </html>
